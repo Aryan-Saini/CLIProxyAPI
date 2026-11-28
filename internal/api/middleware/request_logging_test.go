@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1645,4 +1646,60 @@ func TestRequestLoggingMiddlewareIsolatesDeferredResponseAcrossStreamCancelAndGi
 			t.Fatalf("concurrent error log missing API RESPONSE 1:\n%s", logText)
 		}
 	})
+}
+
+func TestRequestLoggingMiddleware_ClientAuthRejectionIsNotLogged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, requestLog := range []bool{true, false} {
+		t.Run(fmt.Sprintf("request-log=%v", requestLog), func(t *testing.T) {
+			logsDir := t.TempDir()
+			router := gin.New()
+			router.Use(RequestLoggingMiddleware(logging.NewFileRequestLogger(requestLog, logsDir, "", 5)))
+			// Stands in for the access middleware: rejects requests without a client key.
+			router.Use(func(c *gin.Context) {
+				if c.GetHeader("Authorization") == "" {
+					MarkClientAuthRejected(c)
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing API key"})
+					return
+				}
+				c.Next()
+			})
+			// An authenticated request whose upstream provider answers 401 must still be logged.
+			router.POST("/v1/messages", func(c *gin.Context) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "upstream unauthorized"})
+			})
+
+			countLogs := func() int {
+				t.Helper()
+				entries, errRead := os.ReadDir(logsDir)
+				if errRead != nil {
+					t.Fatalf("read logs dir: %v", errRead)
+				}
+				return len(entries)
+			}
+
+			for i := 0; i < 3; i++ {
+				resp := httptest.NewRecorder()
+				router.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"x"}`)))
+				if resp.Code != http.StatusUnauthorized {
+					t.Fatalf("keyless status = %d, want %d", resp.Code, http.StatusUnauthorized)
+				}
+			}
+			if n := countLogs(); n != 0 {
+				t.Fatalf("log files after keyless requests = %d, want 0", n)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"x"}`))
+			req.Header.Set("Authorization", "Bearer client-key")
+			resp := httptest.NewRecorder()
+			router.ServeHTTP(resp, req)
+			if resp.Code != http.StatusUnauthorized {
+				t.Fatalf("upstream status = %d, want %d", resp.Code, http.StatusUnauthorized)
+			}
+			if n := countLogs(); n != 1 {
+				t.Fatalf("log files after upstream 401 = %d, want 1", n)
+			}
+		})
+	}
 }

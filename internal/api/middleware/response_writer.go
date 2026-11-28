@@ -407,7 +407,7 @@ func (w *ResponseWriterWrapper) Finalize(c *gin.Context) error {
 	apiRequestSource := w.extractAPIRequestSource(c)
 	apiResponseSource := w.extractAPIResponseSource(c)
 	apiWebsocketTimelineSource := w.extractAPIWebsocketTimelineSource(c)
-	if (!w.logger.IsEnabled() && !forceLog) || (!w.panicked && isUnroutedNotFound(c, finalStatusCode, slicesAPIResponseError)) {
+	if (!w.logger.IsEnabled() && !forceLog) || (!w.panicked && (isUnroutedNotFound(c, finalStatusCode, slicesAPIResponseError) || isClientAuthRejected(c))) {
 		errDiscard := w.discardStreamingLogWriter()
 		cleanupFileBodySources(websocketTimelineSource, apiRequestSource, apiResponseSource, apiWebsocketTimelineSource)
 		return errDiscard

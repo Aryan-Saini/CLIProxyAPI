@@ -27,6 +27,7 @@ const (
 	maxDeferredErrorRequestBodyBytes           int64  = 32 << 20 // 32 MiB
 	maxCapturedZstdWindowBytes                        = 8 << 20  // 8 MiB: covers every zstd level up to 19
 	authenticatedRequestBodyCapturerContextKey string = "CPA_AUTHENTICATED_REQUEST_BODY_CAPTURER"
+	clientAuthRejectedContextKey               string = "CPA_CLIENT_AUTH_REJECTED"
 )
 
 // RequestLoggingMiddleware creates a Gin middleware that logs HTTP requests and responses.
@@ -145,6 +146,19 @@ func CaptureAuthenticatedRequestBody(c *gin.Context) {
 		return
 	}
 	capturer()
+}
+
+// MarkClientAuthRejected records that the access middleware rejected the request's client
+// credentials, so no request log is written for it. Call it before aborting with a 4xx.
+// Unauthenticated callers could otherwise fill the logs directory with one file per request.
+func MarkClientAuthRejected(c *gin.Context) {
+	if c != nil {
+		c.Set(clientAuthRejectedContextKey, true)
+	}
+}
+
+func isClientAuthRejected(c *gin.Context) bool {
+	return c != nil && c.GetBool(clientAuthRejectedContextKey)
 }
 
 type deferredRequestBodyCapture struct {

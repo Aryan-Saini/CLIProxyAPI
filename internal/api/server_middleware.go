@@ -539,6 +539,8 @@ func accessAuthMiddleware(manager *sdkaccess.Manager, realtimeError bool) gin.Ha
 		statusCode := err.HTTPStatusCode()
 		if statusCode >= http.StatusInternalServerError {
 			log.Errorf("authentication middleware error: %v", err)
+		} else {
+			middleware.MarkClientAuthRejected(c)
 		}
 		if realtimeError {
 			errorType := "authentication_error"
@@ -572,6 +574,7 @@ func realtimeAuthMiddleware(manager *sdkaccess.Manager, handler *codexlive.Handl
 		}
 		if errAuthenticate != nil {
 			closeUnconsumedRequestOnAbort(c)
+			middleware.MarkClientAuthRejected(c)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{
 				"message": errAuthenticate.Error(),
 				"type":    "invalid_request_error",
